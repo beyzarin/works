@@ -1,7 +1,7 @@
 import pandas as pd
 import statsmodels.api as sm
-from statsmodels.formula.api import ols # En küçük kareler yöntemi yapan fonksiyon
-from statsmodels.stats.anova import anova_lm # ANOVA tablosu oluşturan fonksiyon
+from statsmodels.formula.api import ols # ols: ordinary least squares
+from statsmodels.stats.anova import anova_lm # ANOVA tablosu oluşturma ANalysis Of VAriance
 
 # ==========================================
 # 1. ADIM: VERİYİ OLUŞTURMA
@@ -44,10 +44,13 @@ data = {
 
 df = pd.DataFrame(data)
 
-# --- 2. ADIM: İKİ YÖNLÜ ANOVA MODELİ ---
+# --------------------------
+# 2. ADIM: ANALİZ VERİSİ
+# --------------------------
+
 # Sadece 'Yırtık' veya 'Yapışık' olan satırları al (Filtreleme)
 # Boş verilerden kurtulmak ve orijinal veriyi bozmamak için copy() kullanıyoruz.
-df_analiz = df[df['Durus_Nedeni'].isin(['Yırtık', 'Yapışık'])].copy() 
+df_analiz = df[df['Durus_Nedeni'].isin(['Yırtık', 'Yapışık'])].copy()
 
 # Veriyi ekrana yazdırma kısmı 
 #print("\n" + "="*40)
@@ -56,16 +59,36 @@ df_analiz = df[df['Durus_Nedeni'].isin(['Yırtık', 'Yapışık'])].copy()
 #pd.set_option('display.max_rows', None) # Tüm satırları göster
 #print(df_analiz) # Veriyi bas
 
-# ANOVA İşlemi
+
+# --------------------------
+# ANOVA MODELİ
+# --------------------------
+
 formula = 'Durus_Suresi ~ C(Kagit_Cinsi) * C(Durus_Nedeni)'
 
 # OLS modeli oluşturma: Formüle en uygun matematiksel denklemi bulmak için 
 # .fit() fonksiyonu kullanılır. Bu fonksiyon, kareler toplamını minimize etmeye çalışır (Varyansları hesaplar, ortalamaları alır, hataları ölçer).
-model = ols(formula, data=df_analiz).fit() 
+model = ols(formula, data=df_analiz).fit()
 
 anova_table = anova_lm(model, typ=3)
 
-# --- 3. ADIM: SONUÇLARI YAZDIRMA ---
+# --------------------------
+# INTERCEPT SİL + TOTAL EKLE
+# --------------------------
+
+# 1) Intercept satırını kaldır
+anova_table = anova_table.drop(index=["Intercept"])
+
+# 2) Toplam kareler toplamı ve df
+total_ss = anova_table["sum_sq"].sum()
+total_df = anova_table["df"].sum()
+
+# 3) Toplam satırını ekle
+anova_table.loc["Total"] = [total_ss, total_df, None, None]
+
+# --------------------------
+# 3. SONUÇ YAZDIRMA
+# --------------------------
 print("\n" + "="*70)
 print("İKİ YÖNLÜ ANOVA SONUÇ RAPORU (Kağıt Cinsi x Duruş Nedeni)")
 print("="*70)
@@ -75,11 +98,7 @@ print("\n" + "-"*70)
 print("MÜHENDİSLİK KARARLARI (α = 0.05):")
 print("-" * 70)
 
-# YORUM KURALI::
-# Eğer p-değeri 0.05'ten büyükse, H0 hipotezi kabul edilir; yani, faktörün etkisi yoktur.
-# Eğer p-değeri 0.05'ten küçükse, H1 hipotezi kabul edilir; yani, faktörün duruş sürelerinin ortalaması üzerinde anlamlı bir etkisi vardır.
-
-# P-Değerlerini Çekelim
+# p-Değerleri
 p_kagit = anova_table.loc['C(Kagit_Cinsi)', 'PR(>F)']
 p_neden = anova_table.loc['C(Durus_Nedeni)', 'PR(>F)']
 p_etkilesim = anova_table.loc['C(Kagit_Cinsi):C(Durus_Nedeni)', 'PR(>F)']
@@ -87,27 +106,19 @@ p_etkilesim = anova_table.loc['C(Kagit_Cinsi):C(Durus_Nedeni)', 'PR(>F)']
 # 1. Kağıt Etkisi
 if p_kagit < 0.05:
     print(f"[H1 KABUL] Kağıt Cinsinin süreye etkisi vardır (p={p_kagit:.4f}).")
-
 else:
     print(f"[H0 KABUL] Kağıt Cinsinin etkisi yoktur (p={p_kagit:.4f}).")
 
 # 2. Duruş Nedeni Etkisi
 if p_neden < 0.05:
     print(f"[H1 KABUL] Duruş Nedeninin süreye etkisi vardır (p={p_neden:.4f}).")
-
 else:
-    print(f"[H0 KABUL] Duruş Nedeninin tek başına anlamlı bir etkisi yoktur (p={p_neden:.4f}).")
+    print(f"[H0 KABUL] Duruş Nedeninin etkisi yoktur (p={p_neden:.4f}).")
 
-
-# 3. Etkileşim Etkisi 
+# 3. Etkileşim Etkisi
 if p_etkilesim < 0.05:
     print(f"[H1 KABUL - KRİTİK] ETKİLEŞİM VARDIR! (p={p_etkilesim:.4f}).")
-    print("   -> Kağıt Cinsi ve Duruş Nedeni birlikte süreyi anlamlı şekilde etkiliyor.")
-
 else:
     print(f"[H0 KABUL] Etkileşim yoktur (p={p_etkilesim:.4f}).")
-    
-
-
 
 print("\nANALİZ SONLANDI.")
