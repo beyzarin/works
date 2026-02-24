@@ -1,0 +1,105 @@
+import pandas as pd
+import random
+import os
+
+# 1. DOSYA YOLU VE VERİ OKUMA
+script_dir = os.path.dirname(os.path.abspath(__file__))
+file_path = os.path.join(script_dir, 'spotify_songs.csv')
+
+try:
+    df_full = pd.read_csv(file_path, sep=';', encoding='ISO-8859-9')
+except Exception as e:
+    print(f"Hata: Dosya okunamadı. Lütfen csv dosyasının kodla aynı klasörde olduğundan emin ol.\nDetay: {e}")
+    exit()
+
+# Sabit 200 şarkılık havuz
+song_pool = df_full.dropna(subset=['tempo', 'energy', 'track_name']).sample(n=200, random_state=42).to_dict('records')
+print(f"--- 200 Şarkılık Havuz Hazırlandı ---\n")
+#tam veri çerçevesinden eksikler çıkarıldıktan sonra rastgele 200 şarkı seçildi ve sözlük listesi olarak saklandı.
+
+# 2. PUANLAMA (FITNESS) FONKSİYONU
+def calculate_fitness(playlist):
+    score = 0
+    for i in range(len(playlist) - 1):
+        bpm_diff = abs(playlist[i]['tempo'] - playlist[i+1]['tempo'])
+        energy_diff = abs(playlist[i]['energy'] - playlist[i+1]['energy'])
+    # BPM ve enerji uyumu, çalma listesinin akıcılığını belirler. Düşük farklar daha yüksek puan getirir.
+    # BPM farkı 10 veya daha az ise tam puan, 20 veya daha az ise yarım puan, daha fazlaysa fark kadar ceza verilir.
+    #abs fonsiyonu mutlak değer alır, bizim için önemli olan hızın artması veya azalması değil, aradaki farkın büyüklüğüdür.
+        # Tempo Uyumu: Fark azaldıkça puan artar
+        if bpm_diff <= 10: score += 100
+        elif bpm_diff <= 20: score += 50
+        else: score -= bpm_diff # Sert geçiş cezası
+    #Hata ne kadar büyükse, ceza da o kadar büyük olur.
+
+    #Fark 30 ise: Toplam puandan 30 düşer.
+    #Fark 60 ise: Toplam puandan 60 düşer.
+    #bpm_diff: İki şarkı arasındaki "vuruş" hızı farkı. Bu fark çok olursa dinleyici ritmi kaybeder.
+    #energy_diff: İki şarkı arasındaki "coşku" farkı. Birisi çok gürültülü (Rock) diğeri çok sakin (Akustik) ise geçiş sert olur.    
+        # Enerji Uyumu: Akıcılık sağlar
+        if energy_diff < 0.15: score += 50
+    return score
+
+# 3. GENETİK ALGORİTMA PARAMETRELERİ
+POP_SIZE = 60       # Aynı anda yarışan 60 farklı liste
+LIST_LEN = 10       # Her liste 10 şarkıdan oluşur
+GENERATIONS = 100   # 100 nesil boyunca iyileştirme yap
+
+# Başlangıç popülasyonunu oluştur
+population = [random.sample(song_pool, LIST_LEN) for _ in range(POP_SIZE)] #döngü şu şekilde çalışır: 60 kez tekrarlanır (POP_SIZE kadar), 
+#her seferinde song_pool'dan rastgele 10 şarkı seçilir (LIST_LEN kadar) ve bu 10 şarkı bir liste olarak saklanır. Sonuçta, 60 farklı çalma listesi oluşturulmuş olur.
+
+print("Genetik Algoritma (Evrim) Başlıyor...")
+
+for gen in range(GENERATIONS):
+    # Fitness'a göre listeleri büyükten küçüğe sırala
+    population = sorted(population, key=lambda x: calculate_fitness(x), reverse=True) 
+    
+    # Her 20 nesilde bir en iyi skoru ekrana bas
+    if gen % 20 == 0:
+        print(f"Nesil {gen}: En İyi Skor = {calculate_fitness(population[0])}")
+
+    # Yeni nesil oluşturma (Elitizm: En iyi 2 listeyi koru)
+    new_gen = population[:2]
+
+    while len(new_gen) < POP_SIZE:
+        # Seçim (En iyi 15 liste arasından anne ve babayı seç)
+        #Truncation (Budama) Selection kullanarak, sadece en iyi 15 liste 
+        # arasından rastgele iki liste seçilir. Bu, daha iyi listelerin genetik
+        # materyalinin sonraki nesillere aktarılma olasılığını artırır.
+        parent1, parent2 = random.sample(population[:15], 2)
+        
+        # Çaprazlama (Crossover)
+        cut = random.randint(1, LIST_LEN - 2) #1 ile 8 arasında rastgele bir kesme noktası seçilir. Bu nokta, 
+        #iki ebeveyn listesinin hangi bölümünün çocuğa aktarılacağını belirler.
+        child = parent1[:cut]
+        child_ids = [s['track_id'] for s in child] #List Comprehension kullanarak, çocuğa
+        #eklenen şarkıların track_id'lerini içeren bir liste oluşturulur.
+        
+        for song in parent2:
+            if song['track_id'] not in child_ids:
+                child.append(song)
+            if len(child) == LIST_LEN: break
+        
+        # Mutasyon (Bazen listedeki bir şarkıyı havuzdan yenisiyle değiştir)
+        if random.random() < 0.1:
+            idx = random.randint(0, LIST_LEN - 1)
+            new_s = random.choice(song_pool)
+            #200 şarkılık ana havuzdan rastgele, yepyeni bir şarkı çekiyor.
+            if new_s['track_id'] not in [s['track_id'] for s in child]:
+                child[idx] = new_s
+        
+        new_gen.append(child) #Yeni oluşturulan çocuk, yeni nesil listesine eklenir.
+        #Bu süreç, yeni nesil popülasyonu istenen boyuta ulaşana kadar devam eder.
+    
+    population = new_gen
+
+# 4. SONUCU GÖSTER
+best_playlist = population[0]
+print("\n" + "-"*50)
+print("      GENETİK ALGORİTMA: EN İYİ ÇALMA LİSTESİ")
+print("-"*50)
+for i, s in enumerate(best_playlist):
+    print(f"{i+1}. {s['track_name'][:30]:<30} | BPM: {round(s['tempo'],1):>5} | Enerji: {round(s['energy'],2)}")
+print("-"*50)
+print(f"Final Skor: {calculate_fitness(best_playlist)}") 
